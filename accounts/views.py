@@ -1,13 +1,15 @@
-from django.http import HttpResponse
 from django.shortcuts import render, redirect
-
+from django.contrib.auth.tokens import default_token_generator
 from accounts.models import User, UserProfile
-from accounts.utils import detectUser
+from accounts.utils import detectUser, send_verification_email
 from vendor.forms import VenderForm
 from .forms import UserForm
 from django.contrib import messages,auth
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.core.exceptions import PermissionDenied
+from django.utils.http import urlsafe_base64_decode
+
+
 
 # Restrict the vendor from accessing the customer page
 def check_role_vendor(user):
@@ -48,6 +50,11 @@ def registerUser(request):
         user = User.objects.create_user(first_name=first_name, last_name=last_name, username=username, email=email, password=password)
         user.role = User.CUSTOMER
         user.save()
+ # Send verification email
+        mail_subject = 'Please activate your account'
+        email_template = 'accounts/emails/account_verification_email.html'
+        send_verification_email(request, user, mail_subject, email_template)
+
         messages.success(request,"Your account has been registered succesfully!")
         return redirect('registerUser')
     else:
@@ -89,7 +96,7 @@ def registerVendor(request):
             # Send verification email
             mail_subject = 'Please activate your account'
             email_template = 'accounts/emails/account_verification_email.html'
-            # send_verification_email(request, user, mail_subject, email_template)
+            send_verification_email(request, user, mail_subject, email_template)
 
             messages.success(request, 'Your account has been registered sucessfully! Please wait for the approval.')
             return redirect('registerVendor')
@@ -181,3 +188,65 @@ def logout(request):
 
 def dashboard(request):
     return render(request, 'accounts/dashboard.html')
+
+
+def forgot_password(request):
+    if request.method == 'POST':
+        email = request.POST['email']
+
+        if User.objects.filter(email=email).exists():
+            user = User.objects.get(email__exact=email)
+
+            # send reset password email
+            mail_subject = 'Reset Your Password'
+            email_template = 'accounts/emails/reset_password_email.html'
+            send_verification_email(request, user, mail_subject, email_template)
+
+            messages.success(request, 'Password reset link has been sent to your email address.')
+            return redirect('login')
+        else:
+            messages.error(request, 'Account does not exist')
+            return redirect('forgot_password')
+    return render(request, 'accounts/forgot_password.html')
+
+def reset_password_validate(request, uidb64, token):
+    return
+
+def reset_password(request):
+    return render(request, 'accounts/reset_password.html') 
+
+
+def activate(request, uidb64, token):
+    # Activate the user by setting the is_active status to True
+    try:
+        uid = urlsafe_base64_decode(uidb64).decode()
+        user = User._default_manager.get(pk=uid)
+    except(TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is not None and default_token_generator.check_token(user, token):
+        user.is_active = True
+        user.save()
+        messages.success(request, 'Congratulation! Your account is activated.')
+        return redirect('myAccount')
+    else:
+        messages.error(request, 'Invalid activation link')
+        return redirect('myAccount')
+    
+
+
+def reset_password_validate(request, uidb64, token):
+    # validate the user by decoding the token and user pk
+    try:
+        uid = urlsafe_base64_decode(uidb64).decode()
+        user = User._default_manager.get(pk=uid)
+    except(TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+
+    if user is not None and default_token_generator.check_token(user, token):
+        request.session['uid'] = uid
+        messages.info(request, 'Please reset your password')
+        return redirect('reset_password')
+    else:
+        messages.error(request, 'This link has been expired!')
+        return redirect('myAccount')

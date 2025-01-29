@@ -3,6 +3,7 @@ from django.contrib.auth.tokens import default_token_generator
 from accounts.models import User, UserProfile
 from accounts.utils import detectUser, send_verification_email
 from vendor.forms import VenderForm
+from vendor.models import Vendor
 from .forms import UserForm
 from django.contrib import messages,auth
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -154,7 +155,7 @@ def custDashboard(request):
 @login_required(login_url='login')
 @user_passes_test(check_role_vendor)
 def vendorDashboard(request):
-    # vendor = Vendor.objects.get(user=request.user)
+    vendor = Vendor.objects.get(user=request.user)
     # orders = Order.objects.filter(vendors__in=[vendor.id], is_ordered=True).order_by('created_at')
     # recent_orders = orders[:10]
 
@@ -177,7 +178,10 @@ def vendorDashboard(request):
     #     'total_revenue': total_revenue,
     #     'current_month_revenue': current_month_revenue,
     # }
-    return render(request, 'accounts/vendorDashboard.html')
+    context = {
+        'vendor' : vendor
+    }
+    return render(request, 'accounts/vendorDashboard.html',context)
 
 
 
@@ -213,7 +217,22 @@ def reset_password_validate(request, uidb64, token):
     return
 
 def reset_password(request):
-    return render(request, 'accounts/reset_password.html') 
+    if request.method == 'POST':
+        password = request.POST['password']
+        confirm_password = request.POST['confirm_password']
+
+        if password == confirm_password:
+            pk = request.session.get('uid')
+            user = User.objects.get(pk=pk)
+            user.set_password(password)
+            user.is_active = True
+            user.save()
+            messages.success(request, 'Password reset successful')
+            return redirect('login')
+        else:
+            messages.error(request, 'Password do not match!')
+            return redirect('reset_password')
+    return render(request, 'accounts/reset_password.html')
 
 
 def activate(request, uidb64, token):
